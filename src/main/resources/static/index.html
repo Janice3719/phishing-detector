@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <!-- 문서 인코딩 및 모바일 반응형 설정 -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>큐싱·피싱 방지 URL 검수 시스템</title>
+
+	<!-- 일반 static 접속 및 Thymeleaf 접속 모두 지원하는 경로 -->
+	<link rel="stylesheet" href="css/style.css" th:href="@{/css/style.css}"></head>
+<body>
+
+    <!-- 메인 컨테이너 박스 -->
+    <div class="container">
+        
+        <!-- 1. 페이지 제목 및 헤더 영역 -->
+        <div class="header">
+            <h1>🔍 큐싱·피싱 방지 URL 검수 시스템</h1>
+            <span class="badge-mode">💻 PC 접속 모드</span>
+        </div>
+
+        <!-- 2. QR 코드 이미지 업로드 검사 카드 -->
+        <div class="card-section">
+            <div class="card-title">📁 QR 이미지 파일 업로드</div>
+            <div class="input-row">
+                <input type="file" id="qrFileInput" accept="image/*">
+                <button class="btn-submit" onclick="uploadQrCode()">분석 요청</button>
+            </div>
+        </div>
+
+        <!-- 3. URL 직접 입력 검사 카드 -->
+        <div class="card-section">
+            <div class="card-title">🔗 URL 직접 입력 검사</div>
+            <div class="input-row">
+                <input type="text" id="urlInput" placeholder="https://example.com 형식으로 입력">
+                <button class="btn-submit" onclick="checkUrl()">URL 검수</button>
+            </div>
+        </div>
+
+        <!-- 4. 검사 결과 출력 영역 (기본적으로 숨김 상태: display: none) -->
+        <div class="result-container" id="resultContainer" style="display: none;">
+            <h3 class="result-title">분석 결과:</h3>
+            
+            <div class="result-box">
+                <!-- (1) 진단 결과 상태 -->
+                <div class="result-item">
+                    <div class="result-label">상태:</div>
+                    <div class="result-value" id="resStatus">-</div>
+                </div>
+
+                <!-- (2) 위험도 점수 및 부드럽게 차오르는 게이지 바 -->
+                <div class="result-item">
+                    <div class="result-label">위험도 점수:</div>
+                    <div class="result-value score-row">
+                        <div class="progress-bg">
+                            <div class="progress-bar" id="resScoreBar"></div>
+                        </div>
+                        <span class="score-text" id="resScoreText">0점</span>
+                    </div>
+                </div>
+
+                <!-- (3) 요약 메시지 -->
+                <div class="result-item">
+                    <div class="result-label">메시지:</div>
+                    <div class="result-value" id="resMessage">-</div>
+                </div>
+
+                <!-- (4) 구체적 판정 사유 (다중 사유 시 1. --- \n 2. --- 형태 출력) -->
+                <div class="result-item">
+                    <div class="result-label">판정 사유:</div>
+                    <div class="result-value" id="resReason">-</div>
+                </div>
+
+                <!-- (5) 추출/입력 원본 URL -->
+                <div class="result-item">
+                    <div class="result-label">추출/입력 URL:</div>
+                    <div class="result-value"><span class="url-badge" id="resOriginalUrl">-</span></div>
+                </div>
+
+                <!-- (6) 최종 이동 destination URL -->
+                <div class="result-item">
+                    <div class="result-label">최종 이동 URL:</div>
+                    <div class="result-value"><span class="url-badge" id="resExpandedUrl">-</span></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 스크립트 로직 -->
+    <script>
+        // [기능 1] QR 코드 이미지 분석 요청
+        async function uploadQrCode() {
+            const fileInput = document.getElementById('qrFileInput');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('검사할 QR 이미지 파일을 선택해 주세요!');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/api/v1/scan/qr', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('서버 응답 오류 (' + response.status + ')');
+                const data = await response.json();
+                renderResult(data);
+
+            } catch (error) {
+                alert('QR 분석 중 오류가 발생했습니다: ' + error.message);
+            }
+        }
+
+        // [기능 2] URL 직접 입력 분석 요청
+        async function checkUrl() {
+            const urlInput = document.getElementById('urlInput');
+            const urlValue = urlInput.value.trim();
+
+            if (!urlValue) {
+                alert('검사할 URL을 입력해 주세요!');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/v1/scan/url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: urlValue })
+                });
+
+                if (!response.ok) throw new Error('서버 응답 오류 (' + response.status + ')');
+                const data = await response.json();
+                renderResult(data);
+
+            } catch (error) {
+                alert('URL 검수 중 오류가 발생했습니다: ' + error.message);
+            }
+        }
+
+        /**
+         * [결과 화면 출력 및 애니메이션 처리 함수]
+         */
+        function renderResult(data) {
+            const resultContainer = document.getElementById('resultContainer');
+            const bar = document.getElementById('resScoreBar');
+
+            // 1. 애니메이션 재생을 위해 게이지 너비를 0%로 초기화
+            bar.style.width = '0%';
+
+            // 2. 숨겨져 있던 결과 창 렌더링
+            resultContainer.style.display = 'block';
+
+            // 3. 상태 표시 텍스트 세팅
+            const resStatusEl = document.getElementById('resStatus');
+            if (data.isSuspicious) {
+                resStatusEl.innerHTML = '<span class="status-danger">🚨 위험 (의심스러운 URL)</span>';
+            } else {
+                resStatusEl.innerHTML = '<span class="status-safe">✅ 안전 (정상 URL)</span>';
+            }
+
+            // 4. 점수 숫자를 텍스트에 삽입
+            document.getElementById('resScoreText').innerText = data.riskScore + '점';
+
+            // 5. 위험 점수에 맞춰 게이지 바 색상 지정 (빨간색, 주황색, 초록색)
+            if (data.riskScore >= 50) {
+                bar.style.backgroundColor = '#dc2626';
+            } else if (data.riskScore >= 20) {
+                bar.style.backgroundColor = '#f59e0b';
+            } else {
+                bar.style.backgroundColor = '#16a34a';
+            }
+
+            // 6. 메시지, 판정 사유 및 URL 값 채우기
+            document.getElementById('resMessage').innerText = data.message;
+            document.getElementById('resReason').innerText = data.reason || '특이사항이 발견되지 않은 안전한 URL입니다.';
+            document.getElementById('resOriginalUrl').innerText = data.decodedUrl || '-';
+            document.getElementById('resExpandedUrl').innerText = data.expandedUrl || '-';
+
+            // 7. ⭐ 화면이 표시된 후 50ms 시차를 주고 게이지 바 길이를 늘려 애니메이션 실행
+            setTimeout(() => {
+                bar.style.width = data.riskScore + '%';
+            }, 50);
+        }
+    </script>
+</body>
+</html>
