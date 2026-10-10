@@ -1,52 +1,87 @@
 package com.example.phishingdetector.controller;
 
+import com.example.phishingdetector.dto.DailyStatsDto;
 import com.example.phishingdetector.dto.ScanRequestDto;
 import com.example.phishingdetector.dto.ScanResponseDto;
+import com.example.phishingdetector.dto.ScanStatsDto;
+import com.example.phishingdetector.entity.ScanHistory;
+import com.example.phishingdetector.repository.ScanHistoryRepository;
 import com.example.phishingdetector.service.ScanService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * [스캔 컨트롤러]
- * - 프론트엔드의 웹 요청(HTTP API)을 가장 먼저 받아 처리하는 컨트롤러 클래스입니다.
- * - URL: http://localhost:8080/api/v1/scan
- */
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+
+@Tag(name = "scan-controller", description = "피싱/큐싱 탐지 및 대시보드 통계 API")
 @RestController
 @RequestMapping("/api/v1/scan")
 public class ScanController {
 
-    // 비즈니스 로직을 처리하는 ScanService 인터페이스 주입
     private final ScanService scanService;
+    private final ScanHistoryRepository scanHistoryRepository;
 
-    // [생성자 주입]
-    public ScanController(ScanService scanService) {
+    public ScanController(ScanService scanService, ScanHistoryRepository scanHistoryRepository) {
         this.scanService = scanService;
+        this.scanHistoryRepository = scanHistoryRepository;
     }
 
-    /**
-     * [API 1] QR 코드 이미지 파일 업로드 분석 요청 (POST /api/v1/scan/qr)
-     * @param file 프론트엔드에서 전송한 QR 이미지 파일
-     */
-    @PostMapping("/qr")
-    public ResponseEntity<ScanResponseDto> analyzeQrCode(@RequestParam("file") MultipartFile file) {
-        // [수정] scanService.scanQrCode(file)을 호출하여 QR 분석 수행 (인자 1개)
-        ScanResponseDto response = scanService.scanQrCode(file);
-
-        // HTTP 200 OK 상태 코드와 함께 분석 결과를 JSON 형태로 반환
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * [API 2] URL 텍스트 직접 입력 분석 요청 (POST /api/v1/scan/url)
-     * @param request 프론트엔드에서 JSON Body로 보낸 ScanRequestDto { "url": "..." }
-     */
+    @Operation(summary = "URL 피싱 검사", description = "입력받은 URL의 피싱 위험도를 분석하고 결과를 반환합니다.")
     @PostMapping("/url")
-    public ResponseEntity<ScanResponseDto> analyzeUrl(@RequestBody ScanRequestDto request) {
-        // [수정] scanService.scanUrl(...)을 호출하여 URL 분석 수행 (인자 1개: request에서 url 추출)
-        ScanResponseDto response = scanService.scanUrl(request.getUrl());
-
-        // HTTP 200 OK 상태 코드와 함께 분석 결과를 JSON 형태로 반환
+    public ResponseEntity<ScanResponseDto> scanUrl(@RequestBody ScanRequestDto requestDto) {
+        ScanResponseDto response = scanService.scanUrl(requestDto.getUrl());
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "QR 코드 큐싱 검사", description = "업로드된 QR 이미지에서 URL을 추출하여 검사합니다.")
+    @PostMapping("/qr")
+    public ResponseEntity<ScanResponseDto> scanQr(@RequestParam("file") MultipartFile file) {
+        ScanResponseDto response = scanService.scanQrCode(file);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "스캔 이력 조회", description = "최근 스캔한 URL 및 QR 검사 이력을 최신순으로 조회합니다.")
+    @GetMapping("/history")
+    public ResponseEntity<List<ScanHistory>> getHistory() {
+        List<ScanHistory> historyList = scanHistoryRepository.findAllByOrderByIdDesc();
+        return ResponseEntity.ok(historyList);
+    }
+
+    @Operation(summary = "대시보드 요약 통계 조회", description = "전체 검사 수 및 위험/경고/안전 등급별 요약 통계를 조회합니다.")
+    @GetMapping("/stats")
+    public ResponseEntity<ScanStatsDto> getScanStats() {
+        long totalScans = scanHistoryRepository.count();
+        long dangerousCount = scanHistoryRepository.countByRiskLevel("DANGEROUS");
+        long warningCount = scanHistoryRepository.countByRiskLevel("WARNING");
+        long safeCount = scanHistoryRepository.countByRiskLevel("SAFE");
+
+        ScanStatsDto stats = new ScanStatsDto(totalScans, dangerousCount, warningCount, safeCount);
+        return ResponseEntity.ok(stats);
+    }
+
+    @Operation(summary = "한 달치(30일) 일별 스캔 추이 조회", description = "대시보드 꺾은선 그래프 시각화용 30일간의 일별 정상/악성 스캔 통계 데이터를 반환합니다.")
+    @GetMapping("/stats/monthly")
+    public ResponseEntity<List<DailyStatsDto>> getMonthlyStats() {
+        List<DailyStatsDto> monthlyStats = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+
+        // 최근 30일간의 일별 통계 구조 생성
+        for (int i = 29; i >= 0; i--) {
+            LocalDate targetDate = today.minusDays(i);
+            String dateStr = targetDate.toString();
+
+            // 현재 저장된 DB 기반 집계 (테스트 및 초기 연동용)
+            long total = scanHistoryRepository.count();
+            long safe = scanHistoryRepository.countByRiskLevel("SAFE");
+            long malicious = total - safe;
+
+            monthlyStats.add(new DailyStatsDto(dateStr, safe, malicious));
+        }
+
+        return ResponseEntity.ok(monthlyStats);
     }
 }

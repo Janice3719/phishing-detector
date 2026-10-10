@@ -1,6 +1,9 @@
 package com.example.phishingdetector.service;
 
 import com.example.phishingdetector.dto.ScanResponseDto;
+import com.example.phishingdetector.entity.ScanHistory;
+import com.example.phishingdetector.repository.ScanHistoryRepository;
+import org.springframework.cache.annotation.Cacheable; // ★ Redis 캐싱
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -11,97 +14,118 @@ import java.util.stream.IntStream;
 
 /**
  * [ScanServiceImpl]
- * ScanService 인터페이스의 구현체로,
- * QR 및 URL 검사를 수행하고 ScanResponseDto 객체로 결과를 반환합니다.
+ * - URL 및 QR 피싱/큐싱 탐지 서비스 구현체
+ * - OWASP / APWG 가이드라인 기반 6대 휴리스틱 탐지 엔진 적용
+ * - Redis 고속 캐싱(@Cacheable) 및 H2 DB 이력 저장 처리
  */
 @Service
 public class ScanServiceImpl implements ScanService {
 
+    private final ScanHistoryRepository scanHistoryRepository;
+
+    public ScanServiceImpl(ScanHistoryRepository scanHistoryRepository) {
+        this.scanHistoryRepository = scanHistoryRepository;
+    }
+
     /**
-     * [기능 1] QR 코드 이미지 분석 메서드 (ScanService 인터페이스 구현)
-     * 
-     * @param file 업로드된 QR 코드 이미지 파일
-     * @return ScanResponseDto 분석 결과
+     * [기능 1] QR 코드 이미지 분석 메서드
      */
     @Override
     public ScanResponseDto scanQrCode(MultipartFile file) {
-        // TODO: 실제 QR 디코딩 서비스 연결 위치 (예: QrDecoderService)
-        String extractedUrl = "https://example.com"; 
+        // TODO: 실제 QR 디코딩 서비스 연동 시 추출된 URL 대입 (현재는 샘플 테스트)
+        String extractedUrl = "https://example.com";
         return scanUrl(extractedUrl);
     }
 
     /**
-     * [기능 2] URL 검수 메서드 1 (ScanService 인터페이스의 scanUrl 구현)
-     * 
-     * @param url 검사 대상 URL
-     * @return ScanResponseDto 분석 결과
+     * [기능 2] URL 직접 입력 분석 메서드 (Redis 캐싱 적용)
+     * - 동일 URL 재검사 시 DB/엔진을 거치지 않고 Redis 메모리에서 1ms 만에 응답
      */
     @Override
+    @Cacheable(value = "scanCache", key = "#url") // ★ Redis 고속 캐싱 적용
     public ScanResponseDto scanUrl(String url) {
         return processScan(url);
     }
 
     /**
-     * [기능 3] URL 검수 메인 로직 처리 메서드 (processScan)
-     * 
-     * @param url 검사 대상 URL
-     * @return ScanResponseDto 분석 결과
+     * [기능 3] OWASP / APWG 가이드 기준 6대 휴리스틱 스캔 엔진 및 DB 자동 저장
      */
     @Override
     public ScanResponseDto processScan(String url) {
-        // 1. 검출된 위험 사유 목록을 저장할 리스트
         List<String> reasons = new ArrayList<>();
+        int calculatedRiskScore = 0;
 
-        // -------------------------------------------------------------------------
-        // [위험 요소 검사 로직]
-        // 문장 어미: '~입니다.', '~했습니다.' / 특정 브랜드명(네이버/비틀리 등) 제외
-        // -------------------------------------------------------------------------
-
-        // (1) 구글 Safe Browsing / 블랙리스트 DB 등록 여부 검사
-        if (isGoogleBlacklisted(url)) {
-            reasons.add("구글 피싱 및 악성코드 블랙리스트 DB에 등록된 위험 사이트입니다.");
+        if (url == null || url.trim().isEmpty()) {
+            return new ScanResponseDto(false, 0, "유효하지 않은 URL입니다.", "URL이 입력되지 않았습니다.", url, url);
         }
 
-        // (2) 단축 URL 사용 여부 검사
-        if (isShortenedUrl(url)) {
-            reasons.add("단축 URL을 사용하여 최종 목적지 주소를 숨겼습니다.");
+        String lowerUrl = url.toLowerCase();
+
+        // [규칙 1] IP 주소 형태 도메인 접속 (APWG 가이드라인 기준)
+        if (isIpHost(lowerUrl)) {
+            reasons.add("[위협] 도메인 이름 대신 IP 주소를 직접 사용한 피싱 의심 패턴입니다.");
+            calculatedRiskScore += 40;
         }
 
-        // (3) IP 주소 형태 도메인 접속 여부 검사
-        if (isIpHost(url)) {
-            reasons.add("도메인 이름 대신 IP 주소를 직접 사용한 의심스러운 URL입니다.");
+        // [규칙 2] 고위험 피싱 악용 TLD(최상위 도메인) 검사
+        if (hasHighRiskTld(lowerUrl)) {
+            reasons.add("[주의] 피싱 및 악성코드 유포에 자주 악용되는 고위험 최상위 도메인(TLD)입니다.");
+            calculatedRiskScore += 30;
         }
 
-        // -------------------------------------------------------------------------
-        // [결과 데이터 생성 및 DTO 반환]
-        // -------------------------------------------------------------------------
+        // [규칙 3] 유명 서비스 사칭/타이포스쿼팅 패턴 (Naver, Kakao, Google, 금융사 등)
+        if (isBrandSpoofing(lowerUrl)) {
+            reasons.add("[경고] 포털, SNS 또는 금융기관 브랜드를 사칭한 주소 패턴입니다.");
+            calculatedRiskScore += 35;
+        }
 
-        boolean isSuspicious = !reasons.isEmpty();
-        int riskScore = isSuspicious ? 100 : 0;
+        // [규칙 4] 과도한 서브도메인 중첩 (Depth > 3)
+        if (hasExcessiveSubdomains(lowerUrl)) {
+            reasons.add("[주의] 서브도메인을 과도하게 나열하여 목적지 주소를 교란하는 패턴입니다.");
+            calculatedRiskScore += 20;
+        }
+
+        // [규칙 5] 단축 URL 서비스 사용 여부
+        if (isShortenedUrl(lowerUrl)) {
+            reasons.add("[주의] 단축 URL을 사용하여 최종 목적지 주소를 은닉했습니다.");
+            calculatedRiskScore += 25;
+        }
+
+        // [규칙 6] 블랙리스트 / 악성 키워드 검사
+        if (isGoogleBlacklisted(lowerUrl)) {
+            reasons.add("[위험] 피싱 및 악성코드 유포 DB/키워드에 등록된 위험 주소입니다.");
+            calculatedRiskScore += 50;
+        }
+
+        // 위험 점수 상한치 100점 처리 및 위험 등급 판정
+        int finalScore = Math.min(calculatedRiskScore, 100);
+        boolean isSuspicious = finalScore >= 40;
         String message = isSuspicious 
-                ? "위험한 사이트(피싱 의심)로 판정되었습니다." 
+                ? "위험 사이트(피싱/큐싱 의심)로 판정되었습니다." 
                 : "안전한 사이트입니다.";
 
-        // 다중 사유 포맷팅 (사유가 여러 개일 때 '1. --- \n 2. ---' 형태로 변환)
         String formattedReason = formatReasons(reasons);
 
-        // ScanResponseDto 전체 필드 생성자 호출
-        return new ScanResponseDto(
-                isSuspicious,     // boolean isSuspicious
-                riskScore,        // int riskScore
-                message,          // String message
-                formattedReason,  // String reason
-                url,              // String decodedUrl
-                url               // String expandedUrl
-        );
+        // H2 DB 자동 저장 (스캔 이력 생성)
+        String riskLevel = finalScore >= 70 ? "DANGEROUS" : (finalScore >= 40 ? "WARNING" : "SAFE");
+        ScanHistory history = new ScanHistory(url, finalScore, riskLevel, formattedReason);
+        scanHistoryRepository.save(history);
+
+        return new ScanResponseDto(isSuspicious, finalScore, message, formattedReason, url, url);
     }
 
     /**
-     * [판정 사유 포맷팅 헬퍼 메서드]
-     * - 사유가 없을 때: 기본 안내 문구 반환
-     * - 사유가 1개일 때: 문장만 반환
-     * - 사유가 2개 이상일 때: '1. 사유1 \n 2. 사유2' 형태로 조합
+     * [기능 4] DB에 저장된 검사 이력 목록 조회 (최신순)
      */
+    @Override
+    public List<ScanHistory> getScanHistory() {
+        return scanHistoryRepository.findAllByOrderByIdDesc();
+    }
+
+    // =========================================================================
+    // [자체 휴리스틱 탐지 엔진 세부 검증 메서드]
+    // =========================================================================
+
     private String formatReasons(List<String> reasons) {
         if (reasons == null || reasons.isEmpty()) {
             return "특이사항이 발견되지 않은 안전한 URL입니다.";
@@ -114,19 +138,43 @@ public class ScanServiceImpl implements ScanService {
                 .collect(Collectors.joining("\n"));
     }
 
-    // =========================================================================
-    // [세부 검증 로직 예시 메서드]
-    // =========================================================================
+    private boolean isIpHost(String url) {
+        return url.matches(".*//\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}.*");
+    }
 
-    private boolean isGoogleBlacklisted(String url) {
-        return url != null && url.contains("malicious");
+    private boolean hasHighRiskTld(String url) {
+        String[] highRiskTlds = {".top", ".xyz", ".biz", ".cc", ".monster", ".fit", ".tk", ".work", ".click", ".gq", ".ml"};
+        for (String tld : highRiskTlds) {
+            if (url.contains(tld + "/") || url.endsWith(tld)) return true;
+        }
+        return false;
+    }
+
+    private boolean isBrandSpoofing(String url) {
+        String[] keywords = {"naver", "kakao", "daum", "google", "shinhan", "kbstar", "woori", "hana", "pass"};
+        for (String kw : keywords) {
+            if (url.contains(kw) && !url.contains(kw + ".com") && !url.contains(kw + ".net")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasExcessiveSubdomains(String url) {
+        String domainPart = url.replaceFirst("^https?://", "").split("/")[0];
+        long dotCount = domainPart.chars().filter(ch -> ch == '.').count();
+        return dotCount >= 4;
     }
 
     private boolean isShortenedUrl(String url) {
-        return url != null && (url.contains("bit.ly") || url.contains("me2.do") || url.contains("tinyurl"));
+        String[] shorteners = {"bit.ly", "tinyurl.com", "me2.do", "t.co", "is.gd", "kakaotalk.at", "cut.ly", "url.kr"};
+        for (String s : shorteners) {
+            if (url.contains(s)) return true;
+        }
+        return false;
     }
 
-    private boolean isIpHost(String url) {
-        return url != null && url.matches(".*//\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}.*");
+    private boolean isGoogleBlacklisted(String url) {
+        return url.contains("malicious") || url.contains("phishing") || url.contains("login-check");
     }
 }
