@@ -5,224 +5,365 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>큐싱·피싱 방지 URL 검수 시스템</title>
 
-    <!-- 일반 static 접속 및 Thymeleaf 접속 모두 지원 -->
-    <link rel="stylesheet" href="css/style.css" th:href="@{/css/style.css}">
-    
     <!-- Chart.js CDN (그래프 시각화) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
-        /* 기본 레이아웃 및 디자인 */
+        /* =========================================================
+           1. CSS 변수 정의 (라이트 모드 / 다크 모드)
+           ========================================================= */
+        :root {
+            --bg-color: #f1f5f9;
+            --card-bg: #ffffff;
+            --text-primary: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --box-bg: #f8fafc;
+            --toggle-bg: #e2e8f0;
+            --input-bg: #ffffff;
+            --url-badge-bg: #e0f2fe;
+            --url-badge-text: #0369a1;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --box-bg: #0f172a;
+            --toggle-bg: #334155;
+            --input-bg: #0f172a;
+            --url-badge-bg: #1e3a8a;
+            --url-badge-text: #38bdf8;
+        }
+
+        /* =========================================================
+           2. 기본 레이아웃 및 디자인
+           ========================================================= */
         body {
             font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
-            background-color: #f1f5f9;
-            color: #1e293b;
+            background-color: var(--bg-color) !important;
+            color: var(--text-primary);
             margin: 0;
             padding: 20px;
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
-        .container {
-            max-width: 800px;
+
+        .container, main, .wrapper, .app, #app {
+            max-width: 1600px;
             margin: 0 auto;
             display: flex;
             flex-direction: column;
             gap: 20px;
+            background: transparent !important;
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
         }
+
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: #ffffff;
+            background: var(--card-bg) !important;
             padding: 20px;
-            border-radius: 16px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border-radius: 14px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }
+
         .header h1 {
             font-size: 1.3rem;
             margin: 0;
-            color: #0f172a;
+            color: var(--text-primary);
         }
+
         .badge-mode {
             font-size: 0.8rem;
-            background: #e2e8f0;
-            color: #475569;
+            background: var(--box-bg);
+            color: var(--text-secondary);
             padding: 4px 10px;
             border-radius: 20px;
             font-weight: 600;
+            border: 1px solid var(--border-color);
         }
-        .card-section {
-            background: #ffffff;
+
+        .dashboard-grid {
+            display: flex;
+            gap: 50px;
+            align-items: flex-start;
+        }
+
+        .left-col, .right-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-width: 0;
+        }
+
+        .card-section, .result-container {
+            background: var(--card-bg) !important;
             padding: 20px;
             border-radius: 16px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }
-        .card-title {
+
+        .card-title, .result-title {
             font-size: 1rem;
             font-weight: 700;
             margin-bottom: 12px;
-            color: #334155;
+            color: var(--text-primary);
         }
+
         .input-row {
             display: flex;
             gap: 10px;
+            align-items: center;
         }
-        .input-row input[type="text"], .input-row input[type="file"] {
+
+        .input-row input[type="text"] {
             flex: 1;
-            padding: 12px;
-            border: 1px solid #cbd5e1;
+            height: 46px;
+            padding: 0 12px;
+            box-sizing: border-box;
+            background-color: var(--input-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             font-size: 0.9rem;
             outline: none;
         }
+
+        .input-row input[type="file"] {
+            flex: 1;
+            height: 46px;
+            line-height: 44px;
+            padding: 0 12px;
+            box-sizing: border-box;
+            background-color: var(--input-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .input-row input[type="file"]::file-selector-button {
+            background-color: var(--toggle-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            height: 30px;
+            padding: 0 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-right: 12px;
+            vertical-align: middle;
+            font-size: 0.82rem;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
         .btn-submit {
+            height: 46px;
             background: #2563eb;
             color: white;
             border: none;
-            padding: 12px 20px;
+            padding: 0 20px;
             border-radius: 8px;
             font-weight: 700;
             cursor: pointer;
             transition: background 0.2s;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
         }
+
         .btn-submit:hover {
             background: #1d4ed8;
         }
 
-        /* 대시보드 통계 카드 */
+        /* ⭕ 통계 카드 레이아웃 및 숫자 완벽 일직선 보정 */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
             gap: 12px;
             margin-top: 10px;
         }
+
         .stat-card {
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
+            background-color: var(--box-bg) !important;
+            border: 1px solid var(--border-color);
             border-radius: 10px;
             padding: 12px;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
         }
+
         .stat-label {
             font-size: 0.8rem;
-            color: #64748b;
+            color: var(--text-muted);
             font-weight: 600;
+            min-height: 2.6em; /* 👈 2줄 기준 높이 고정 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            line-height: 1.25;
+            word-break: keep-all;
         }
+
         .stat-value {
             font-size: 1.5rem;
             font-weight: 800;
-            margin-top: 4px;
+            margin-top: auto; /* 👈 숫자를 항상 카드 하단 기준 일직선 정렬 */
+            padding-top: 4px;
         }
+
         .text-total { color: #2563eb; }
         .text-safe { color: #16a34a; }
         .text-warning { color: #d97706; }
         .text-danger { color: #dc2626; }
 
-        /* 차트 및 토글 스위치 */
         .chart-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 12px;
         }
-        .toggle-wrapper {
+
+        .toggle-wrapper, .theme-toggle-wrapper {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 0.82rem;
             font-weight: bold;
-            background: #f1f5f9;
+            background: var(--toggle-bg);
             padding: 4px 10px;
             border-radius: 20px;
         }
+
         .switch {
             position: relative;
             display: inline-block;
             width: 40px;
             height: 22px;
         }
+
         .switch input { opacity: 0; width: 0; height: 0; }
+
         .slider {
             position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
             background-color: #16a34a; transition: .3s; border-radius: 22px;
         }
+
         .slider:before {
             position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
             background-color: white; transition: .3s; border-radius: 50%;
         }
+
         input:checked + .slider { background-color: #dc2626; }
         input:checked + .slider:before { transform: translateX(18px); }
 
-        /* 검사 결과 상자 스타일 */
-        .result-container {
-            background: #ffffff;
-            padding: 20px;
-            border-radius: 16px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        }
-        .result-title {
-            font-size: 1.1rem;
-            margin-top: 0;
-            margin-bottom: 16px;
-            color: #0f172a;
-        }
+        .theme-switch input:checked + .slider { background-color: #2563eb; }
+
+        /* =========================================================
+           3. 결과 영역 레이아웃 및 완벽 수직 정렬
+           ========================================================= */
         .result-box {
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            background: #f8fafc;
-            padding: 16px;
+            gap: 16px;
+            background: var(--box-bg) !important;
+            padding: 20px;
             border-radius: 12px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--border-color);
         }
+
         .result-item {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             font-size: 0.9rem;
+            min-height: 24px;
         }
+
+        .result-item.align-top {
+            align-items: flex-start;
+        }
+
         .result-label {
-            width: 110px;
+            width: 120px;
             font-weight: 700;
-            color: #475569;
+            color: var(--text-secondary);
             flex-shrink: 0;
         }
+
         .result-value {
             flex: 1;
-            color: #1e293b;
+            color: var(--text-primary);
             word-break: break-all;
+            line-height: 1.5;
         }
+
         .status-safe { color: #16a34a; font-weight: 800; }
         .status-danger { color: #dc2626; font-weight: 800; }
+        .status-wait { color: var(--text-muted); font-weight: 600; }
+
         .score-row {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            width: 100%;
         }
+
+        /* 회색 배경 트랙 */
         .progress-bg {
             flex: 1;
-            height: 12px;
-            background: #e2e8f0;
-            border-radius: 6px;
+            height: 14px;
+            background-color: #e2e8f0;
+            border-radius: 7px;
             overflow: hidden;
+            position: relative;
         }
+
+        [data-theme="dark"] .progress-bg {
+            background-color: #334155;
+        }
+
+        /* 게이지 막대 기본 구조 */
         .progress-bar {
-            height: 100%;
-            width: 0%;
-            background: #16a34a;
-            transition: width 0.8s ease-in-out, background-color 0.3s;
+            height: 100% !important;
+            border-radius: 7px;
+            display: block !important;
         }
+
         .score-text {
             font-weight: 800;
             font-size: 0.95rem;
             width: 45px;
         }
+
         .url-badge {
-            background: #e0f2fe;
-            color: #0369a1;
-            padding: 2px 6px;
+            background: var(--url-badge-bg);
+            color: var(--url-badge-text);
+            padding: 2px 8px;
             border-radius: 4px;
             font-family: monospace;
+            display: inline-block;
         }
 
-        /* 면책 조항 안내 문구 상자 */
         .disclaimer-box {
             margin-top: 10px;
             padding: 12px 14px;
@@ -234,6 +375,18 @@
             line-height: 1.5;
             word-break: keep-all;
         }
+
+        [data-theme="dark"] .disclaimer-box {
+            background-color: #451a03;
+            border-color: #78350f;
+            color: #fef08a;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-grid {
+                flex-direction: column;
+            }
+        }
     </style>
 </head>
 <body>
@@ -243,121 +396,134 @@
         <!-- 1. 페이지 헤더 -->
         <div class="header">
             <h1>🔍 큐싱·피싱 방지 URL 검수 시스템</h1>
-            <span class="badge-mode">💻 PC 접속 모드</span>
-        </div>
-
-        <!-- 2. 대시보드 요약 통계 카드 -->
-        <div class="card-section">
-            <div class="card-title">📊 실시간 탐지 통계 요약</div>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">전체 스캔</div>
-                    <div class="stat-value text-total" id="totalScans">1,248</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">안전 (SAFE)</div>
-                    <div class="stat-value text-safe" id="safeCount">1,080</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">경고 (WARNING)</div>
-                    <div class="stat-value text-warning" id="warningCount">112</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">위험 (DANGEROUS)</div>
-                    <div class="stat-value text-danger" id="dangerousCount">56</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 3. 최근 30일 스캔 추이 그래프 -->
-        <div class="card-section">
-            <div class="chart-header">
-                <div class="card-title" style="margin:0;">📈 최근 30일 스캔 추이</div>
-                <div class="toggle-wrapper">
-                    <span id="labelSafe" style="color: #16a34a;">정상 URL</span>
-                    <label class="switch">
-                        <input type="checkbox" id="chartToggle">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="theme-toggle-wrapper">
+                    <span id="themeIcon">☀️</span>
+                    <label class="switch theme-switch">
+                        <input type="checkbox" id="themeToggle">
                         <span class="slider"></span>
                     </label>
-                    <span id="labelMalicious" style="color: #94a3b8;">악성 URL</span>
                 </div>
-            </div>
-            <div style="height: 220px; position: relative;">
-                <canvas id="monthlyChart"></canvas>
+                <span class="badge-mode">💻 PC 접속 모드</span>
             </div>
         </div>
 
-        <!-- 4. QR 코드 이미지 업로드 검사 카드 -->
-        <div class="card-section">
-            <div class="card-title">📁 QR 이미지 파일 업로드</div>
-            <div class="input-row">
-                <input type="file" id="qrFileInput" accept="image/*">
-                <button class="btn-submit" onclick="uploadQrCode()">분석 요청</button>
-            </div>
-        </div>
+        <!-- 대시보드 2열 영역 시작 -->
+        <div class="dashboard-grid">
 
-        <!-- 5. URL 직접 입력 검사 카드 -->
-        <div class="card-section">
-            <div class="card-title">🔗 URL 직접 입력 검사</div>
-            <div class="input-row">
-                <input type="text" id="urlInput" placeholder="https://example.com 형식으로 입력">
-                <button class="btn-submit" onclick="checkUrl()">URL 검수</button>
-            </div>
-        </div>
-
-        <!-- 6. 검사 결과 출력 영역 -->
-        <div class="result-container" id="resultContainer" style="display: block;">
-            <h3 class="result-title">분석 결과:</h3>
-            
-            <div class="result-box">
-                <!-- (1) 진단 결과 상태 -->
-                <div class="result-item">
-                    <div class="result-label">상태:</div>
-                    <div class="result-value" id="resStatus">
-                        <span class="status-danger">🚨 위험 (의심스러운 URL)</span>
+            <!-- 👈 [왼쪽 영역] QR 업로드 / URL 입력 / 분석 결과 -->
+            <div class="left-col">
+                
+                <!-- QR 코드 이미지 업로드 검사 카드 -->
+                <div class="card-section">
+                    <div class="card-title">📁 QR 이미지 파일 업로드</div>
+                    <div class="input-row">
+                        <input type="file" id="qrFileInput" accept="image/*">
+                        <button class="btn-submit" onclick="uploadQrCode()">분석 요청</button>
                     </div>
                 </div>
 
-                <!-- (2) 위험도 점수 및 게이지 바 -->
-                <div class="result-item">
-                    <div class="result-label">위험도 점수:</div>
-                    <div class="result-value score-row">
-                        <div class="progress-bg">
-                            <div class="progress-bar" id="resScoreBar" style="width: 85%; background-color: rgb(220, 38, 38);"></div>
+                <!-- URL 직접 입력 검사 카드 -->
+                <div class="card-section">
+                    <div class="card-title">🔗 URL 직접 입력 검사</div>
+                    <div class="input-row">
+                        <input type="text" id="urlInput" placeholder="https://example.com 형식으로 입력">
+                        <button class="btn-submit" onclick="checkUrl()">URL 검수</button>
+                    </div>
+                </div>
+
+                <!-- ⭕ 검사 결과 출력 영역 -->
+                <div class="result-container" id="resultContainer" style="display: block;">
+                    <h3 class="result-title">분석 결과</h3>
+                    
+                    <div class="result-box">
+                        <div class="result-item">
+                            <div class="result-label">상태</div>
+                            <div class="result-value" id="resStatus"><span class="status-wait">⏳ 검사 대기 중</span></div>
                         </div>
-                        <span class="score-text" id="resScoreText">85점</span>
+
+                        <div class="result-item">
+                            <div class="result-label">위험도 점수</div>
+                            <div class="result-value score-row">
+                                <div class="progress-bg">
+                                    <div class="progress-bar" id="resScoreBar"></div>
+                                </div>
+                                <span class="score-text" id="resScoreText">0점</span>
+                            </div>
+                        </div>
+
+                        <div class="result-item">
+                            <div class="result-label">메시지</div>
+                            <div class="result-value" id="resMessage">검사할 URL을 입력하거나 QR 이미지를 업로드해 주세요.</div>
+                        </div>
+
+                        <div class="result-item align-top">
+                            <div class="result-label">판정 사유</div>
+                            <div class="result-value" id="resReason" style="white-space: pre-line;">-</div>
+                        </div>
+
+                        <div class="result-item">
+                            <div class="result-label">추출/입력 URL</div>
+                            <div class="result-value"><span class="url-badge" id="resOriginalUrl">-</span></div>
+                        </div>
+
+                        <div class="result-item">
+                            <div class="result-label">최종 이동 URL</div>
+                            <div class="result-value"><span class="url-badge" id="resExpandedUrl">-</span></div>
+                        </div>
+
+                        <div class="disclaimer-box">
+                            ⚠️ <strong>주의사항:</strong> 본 시스템의 검수 결과는 보안 분석에 기반한 <strong>참고용 정보</strong>입니다. 제공된 URL에 대한 직접 접속 및 최종 이동에 따른 모든 책임은 사용자 본인에게 있으며, 본 시스템은 이에 대해 어떠한 법적 책임도 지지 않습니다.
+                        </div>
                     </div>
                 </div>
 
-                <!-- (3) 요약 메시지 -->
-                <div class="result-item">
-                    <div class="result-label">메시지:</div>
-                    <div class="result-value" id="resMessage">피싱 의심 도메인 및 미인증 브랜드 사칭 패턴이 감지되었습니다.</div>
-                </div>
-
-                <!-- (4) 구체적 판정 사유 -->
-                <div class="result-item">
-                    <div class="result-label">판정 사유:</div>
-                    <div class="result-value" id="resReason">1. 금융기관 사칭 유사 도메인 사용 (+50점)<br>2. 생성된 지 30일 이내 신생 TLD 도메인 (+35점)</div>
-                </div>
-
-                <!-- (5) 추출/입력 원본 URL -->
-                <div class="result-item">
-                    <div class="result-label">추출/입력 URL:</div>
-                    <div class="result-value"><span class="url-badge" id="resOriginalUrl">http://naver.security-check.site/login</span></div>
-                </div>
-
-                <!-- (6) 최종 이동 destination URL -->
-                <div class="result-item">
-                    <div class="result-label">최종 이동 URL:</div>
-                    <div class="result-value"><span class="url-badge" id="resExpandedUrl">http://192.168.0.12/phishing/step1</span></div>
-                </div>
-
-                <!-- (7) 면책 조항 안내 문구 -->
-                <div class="disclaimer-box">
-                    ⚠️ <strong>주의사항:</strong> 본 시스템의 검수 결과는 보안 분석에 기반한 <strong>참고용 정보</strong>입니다. 제공된 URL에 대한 직접 접속 및 최종 이동에 따른 모든 책임은 사용자 본인에게 있으며, 본 시스템은 이에 대해 어떠한 법적 책임도 지지 않습니다.
-                </div>
             </div>
+
+            <!-- 👉 [오른쪽 영역] 실시간 통계 요약 / 최근 30일 그래프 -->
+            <div class="right-col">
+                
+                <div class="card-section">
+                    <div class="card-title">📊 실시간 탐지 통계 요약</div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">전체 스캔</div>
+                            <div class="stat-value text-total" id="totalScans">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">안전 (SAFE)</div>
+                            <div class="stat-value text-safe" id="safeCount">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">경고 (WARNING)</div>
+                            <div class="stat-value text-warning" id="warningCount">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">위험 (DANGEROUS)</div>
+                            <div class="stat-value text-danger" id="dangerousCount">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-section">
+                    <div class="chart-header">
+                        <div class="card-title" style="margin:0;">📈 최근 30일 스캔 추이</div>
+                        <div class="toggle-wrapper">
+                            <span id="labelSafe" style="color: #16a34a;">정상 URL</span>
+                            <label class="switch">
+                                <input type="checkbox" id="chartToggle">
+                                <span class="slider"></span>
+                            </label>
+                            <span id="labelMalicious" style="color: #94a3b8;">악성 URL</span>
+                        </div>
+                    </div>
+                    <div style="height: 280px; position: relative;">
+                        <canvas id="monthlyChart"></canvas>
+                    </div>
+                </div>
+
+            </div>
+
         </div>
 
     </div>
@@ -365,39 +531,61 @@
     <!-- 스크립트 로직 -->
     <script>
         let chartInstance = null;
-        let monthlyDataCache = [
-            { date: '09/28', safeCount: 120, maliciousCount: 8 },
-            { date: '09/29', safeCount: 145, maliciousCount: 12 },
-            { date: '09/30', safeCount: 138, maliciousCount: 6 },
-            { date: '10/01', safeCount: 162, maliciousCount: 18 },
-            { date: '10/02', safeCount: 140, maliciousCount: 9 },
-            { date: '10/03', safeCount: 185, maliciousCount: 22 },
-            { date: '10/04', safeCount: 190, maliciousCount: 11 }
-        ];
+        let monthlyDataCache = [];
 
-        // 페이지 로드 시 초기 데이터 연동
         document.addEventListener("DOMContentLoaded", () => {
+            initTheme();
             loadStats();
             loadMonthlyChart();
         });
 
-        // [대시보드 1] 통계 수치 로드
+        function initTheme() {
+            const themeToggle = document.getElementById('themeToggle');
+            const themeIcon = document.getElementById('themeIcon');
+
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            if (savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                themeToggle.checked = true;
+                themeIcon.innerText = '🌙';
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+                themeToggle.checked = false;
+                themeIcon.innerText = '☀️';
+            }
+
+            themeToggle.addEventListener('change', (e) => {
+                const isDark = e.target.checked;
+                if (isDark) {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    localStorage.setItem('theme', 'dark');
+                    themeIcon.innerText = '🌙';
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'light');
+                    localStorage.setItem('theme', 'light');
+                    themeIcon.innerText = '☀️';
+                }
+
+                const showMalicious = document.getElementById('chartToggle').checked;
+                renderChart(showMalicious);
+            });
+        }
+
         async function loadStats() {
             try {
                 const response = await fetch('/api/v1/scan/stats');
                 if (response.ok) {
                     const data = await response.json();
-                    document.getElementById('totalScans').innerText = data.totalScans;
-                    document.getElementById('safeCount').innerText = data.safeCount;
-                    document.getElementById('warningCount').innerText = data.warningCount;
-                    document.getElementById('dangerousCount').innerText = data.dangerousCount;
+                    document.getElementById('totalScans').innerText = data.totalScans || 0;
+                    document.getElementById('safeCount').innerText = data.safeCount || 0;
+                    document.getElementById('warningCount').innerText = data.warningCount || 0;
+                    document.getElementById('dangerousCount').innerText = data.dangerousCount || 0;
                 }
             } catch (e) {
-                // 서버 꺼져 있을 때는 기본 가짜 수치 유지
+                console.error("통계 API 연결 실패:", e);
             }
         }
 
-        // [대시보드 2] 차트 데이터 로드
         async function loadMonthlyChart() {
             try {
                 const response = await fetch('/api/v1/scan/stats/monthly');
@@ -405,16 +593,19 @@
                     monthlyDataCache = await response.json();
                 }
             } catch (e) {
-                // 서버 꺼져 있을 때는 기본 가짜 수치 유지
+                console.error("차트 API 연결 실패:", e);
             }
             renderChart(false);
         }
 
-        // [대시보드 3] Chart.js 차트 렌더링
         function renderChart(showMalicious) {
             const ctx = document.getElementById('monthlyChart').getContext('2d');
             const labels = monthlyDataCache.map(d => d.date);
             const dataPoints = monthlyDataCache.map(d => showMalicious ? d.maliciousCount : d.safeCount);
+
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const gridColor = isDark ? '#334155' : '#e2e8f0';
+            const textColor = isDark ? '#94a3b8' : '#64748b';
 
             if (chartInstance) chartInstance.destroy();
 
@@ -426,7 +617,7 @@
                         label: showMalicious ? '악성/위험 URL 건수' : '정상 URL 건수',
                         data: dataPoints,
                         borderColor: showMalicious ? '#dc2626' : '#16a34a',
-                        backgroundColor: showMalicious ? 'rgba(220, 38, 38, 0.1)' : 'rgba(22, 163, 74, 0.1)',
+                        backgroundColor: showMalicious ? 'rgba(220, 38, 38, 0.15)' : 'rgba(22, 163, 74, 0.15)',
                         fill: true,
                         tension: 0.3,
                         pointRadius: 3
@@ -437,13 +628,13 @@
                     maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
-                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                        x: { grid: { color: gridColor }, ticks: { color: textColor } },
+                        y: { beginAtZero: true, grid: { color: gridColor }, ticks: { precision: 0, color: textColor } }
                     }
                 }
             });
         }
 
-        // 그래프 토글 이벤트
         document.getElementById('chartToggle').addEventListener('change', (e) => {
             const isChecked = e.target.checked;
             document.getElementById('labelSafe').style.color = isChecked ? '#94a3b8' : '#16a34a';
@@ -451,7 +642,6 @@
             renderChart(isChecked);
         });
 
-        // [기능 1] QR 코드 검사
         async function uploadQrCode() {
             const fileInput = document.getElementById('qrFileInput');
             if (!fileInput.files || fileInput.files.length === 0) {
@@ -465,12 +655,13 @@
                 if (!response.ok) throw new Error();
                 const data = await response.json();
                 renderResult(data);
+                loadStats();
+                loadMonthlyChart();
             } catch (error) {
-                alert('서버 연결이 없어 캡처용 화면 상태를 유지합니다.');
+                alert('QR 코드 검사 중 오류가 발생했거나 서버 연결 상태를 확인해주세요.');
             }
         }
 
-        // [기능 2] URL 검사
         async function checkUrl() {
             const urlValue = document.getElementById('urlInput').value.trim();
             if (!urlValue) return alert('검사할 URL을 입력해 주세요!');
@@ -484,44 +675,49 @@
                 if (!response.ok) throw new Error();
                 const data = await response.json();
                 renderResult(data);
+                loadStats();
+                loadMonthlyChart();
             } catch (error) {
-                alert('서버 연결이 없어 캡처용 화면 상태를 유지합니다.');
+                alert('URL 검사 중 오류가 발생했거나 서버 연결 상태를 확인해주세요.');
             }
         }
 
-        // [결과 출력 함수]
         function renderResult(data) {
-            const resultContainer = document.getElementById('resultContainer');
+            if (!data) return;
+
             const bar = document.getElementById('resScoreBar');
-
-            bar.style.width = '0%';
-            resultContainer.style.display = 'block';
-
+            const scoreText = document.getElementById('resScoreText');
             const resStatusEl = document.getElementById('resStatus');
+
+            const score = Number(data.riskScore) || 0;
+
+            let barColor = '#16a34a';
+            if (score >= 70) {
+                barColor = '#dc2626';
+            } else if (score >= 40) {
+                barColor = '#f59e0b';
+            }
+
+            scoreText.innerText = score + '점';
+
             if (data.isSuspicious) {
                 resStatusEl.innerHTML = '<span class="status-danger">🚨 위험 (의심스러운 URL)</span>';
             } else {
                 resStatusEl.innerHTML = '<span class="status-safe">✅ 안전 (정상 URL)</span>';
             }
 
-            document.getElementById('resScoreText').innerText = data.riskScore + '점';
-
-            if (data.riskScore >= 50) {
-                bar.style.backgroundColor = '#dc2626';
-            } else if (data.riskScore >= 20) {
-                bar.style.backgroundColor = '#f59e0b';
-            } else {
-                bar.style.backgroundColor = '#16a34a';
-            }
-
-            document.getElementById('resMessage').innerText = data.message;
+            document.getElementById('resMessage').innerText = data.message || '-';
             document.getElementById('resReason').innerText = data.reason || '특이사항이 발견되지 않은 안전한 URL입니다.';
             document.getElementById('resOriginalUrl').innerText = data.decodedUrl || '-';
             document.getElementById('resExpandedUrl').innerText = data.expandedUrl || '-';
 
-            setTimeout(() => {
-                bar.style.width = data.riskScore + '%';
-            }, 50);
+            if (bar) {
+                bar.style.cssText = "width: 0%; background: " + barColor + " !important; height: 100%; border-radius: 7px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);";
+
+                setTimeout(() => {
+                    bar.style.cssText = "width: " + score + "%; background: " + barColor + " !important; height: 100%; border-radius: 7px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);";
+                }, 50);
+            }
         }
     </script>
 </body>

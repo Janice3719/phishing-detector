@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,7 +48,8 @@ public class ScanController {
     @Operation(summary = "스캔 이력 조회", description = "최근 스캔한 URL 및 QR 검사 이력을 최신순으로 조회합니다.")
     @GetMapping("/history")
     public ResponseEntity<List<ScanHistory>> getHistory() {
-        List<ScanHistory> historyList = scanHistoryRepository.findAllByOrderByIdDesc();
+        // 👈 scanId 기준 정렬 메서드로 수정
+        List<ScanHistory> historyList = scanHistoryRepository.findAllByOrderByScanIdDesc();
         return ResponseEntity.ok(historyList);
     }
 
@@ -68,18 +70,22 @@ public class ScanController {
     public ResponseEntity<List<DailyStatsDto>> getMonthlyStats() {
         List<DailyStatsDto> monthlyStats = new ArrayList<>();
         LocalDate today = LocalDate.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
 
-        // 최근 30일간의 일별 통계 구조 생성
+        long total = scanHistoryRepository.count();
+        long safe = scanHistoryRepository.countByRiskLevel("SAFE");
+        long malicious = total - safe; // 👈 문법 오타 수정
+
         for (int i = 29; i >= 0; i--) {
             LocalDate targetDate = today.minusDays(i);
-            String dateStr = targetDate.toString();
+            String dateStr = targetDate.format(formatter);
 
-            // 현재 저장된 DB 기반 집계 (테스트 및 초기 연동용)
-            long total = scanHistoryRepository.count();
-            long safe = scanHistoryRepository.countByRiskLevel("SAFE");
-            long malicious = total - safe;
-
-            monthlyStats.add(new DailyStatsDto(dateStr, safe, malicious));
+            // 오늘 날짜 데이터 항목에 실시간 수치 할당 (최근 30일 차트 연동용)
+            if (i == 0) {
+                monthlyStats.add(new DailyStatsDto(dateStr, safe, malicious));
+            } else {
+                monthlyStats.add(new DailyStatsDto(dateStr, 0, 0));
+            }
         }
 
         return ResponseEntity.ok(monthlyStats);
