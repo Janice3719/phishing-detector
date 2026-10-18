@@ -48,7 +48,6 @@ public class ScanController {
     @Operation(summary = "스캔 이력 조회", description = "최근 스캔한 URL 및 QR 검사 이력을 최신순으로 조회합니다.")
     @GetMapping("/history")
     public ResponseEntity<List<ScanHistory>> getHistory() {
-        // 👈 scanId 기준 정렬 메서드로 수정
         List<ScanHistory> historyList = scanHistoryRepository.findAllByOrderByScanIdDesc();
         return ResponseEntity.ok(historyList);
     }
@@ -72,20 +71,27 @@ public class ScanController {
         LocalDate today = LocalDate.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
 
-        long total = scanHistoryRepository.count();
-        long safe = scanHistoryRepository.countByRiskLevel("SAFE");
-        long malicious = total - safe; // 👈 문법 오타 수정
+        // 1. DB에서 전체 스캔 이력 조회
+        List<ScanHistory> allHistory = scanHistoryRepository.findAll();
 
+        // 2. 최근 30일 동안 각 날짜별로 실제 저장된 스캔 건수 계산
         for (int i = 29; i >= 0; i--) {
             LocalDate targetDate = today.minusDays(i);
             String dateStr = targetDate.format(formatter);
 
-            // 오늘 날짜 데이터 항목에 실시간 수치 할당 (최근 30일 차트 연동용)
-            if (i == 0) {
-                monthlyStats.add(new DailyStatsDto(dateStr, safe, malicious));
-            } else {
-                monthlyStats.add(new DailyStatsDto(dateStr, 0, 0));
-            }
+            // 해당 날짜(targetDate)에 발생한 정상(SAFE) 건수
+            long safeCount = allHistory.stream()
+                    .filter(h -> h.getCreatedAt() != null && h.getCreatedAt().toLocalDate().equals(targetDate))
+                    .filter(h -> "SAFE".equalsIgnoreCase(h.getRiskLevel()))
+                    .count();
+
+            // 해당 날짜(targetDate)에 발생한 악성/경고(WARNING, DANGEROUS) 건수
+            long maliciousCount = allHistory.stream()
+                    .filter(h -> h.getCreatedAt() != null && h.getCreatedAt().toLocalDate().equals(targetDate))
+                    .filter(h -> !"SAFE".equalsIgnoreCase(h.getRiskLevel()))
+                    .count();
+
+            monthlyStats.add(new DailyStatsDto(dateStr, safeCount, maliciousCount));
         }
 
         return ResponseEntity.ok(monthlyStats);

@@ -7,6 +7,9 @@
 
     <!-- Chart.js CDN (그래프 시각화) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- 1014추가 내용: HTML5 QR 스캐너 라이브러리 -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
 
     <style>
         /* =========================================================
@@ -90,6 +93,7 @@
             border-radius: 20px;
             font-weight: 600;
             border: 1px solid var(--border-color);
+            white-space: nowrap; /* 1014추가 내용: 세로 한 글자씩 쏠림 방지 */
         }
 
         .dashboard-grid {
@@ -126,6 +130,8 @@
             display: flex;
             gap: 10px;
             align-items: center;
+            width: 100%;
+            box-sizing: border-box;
         }
 
         .input-row input[type="text"] {
@@ -139,6 +145,7 @@
             border-radius: 8px;
             font-size: 0.9rem;
             outline: none;
+            min-width: 0;
         }
 
         .input-row input[type="file"] {
@@ -154,6 +161,7 @@
             font-size: 0.9rem;
             outline: none;
             cursor: pointer;
+            min-width: 0;
         }
 
         .input-row input[type="file"]::file-selector-button {
@@ -186,6 +194,7 @@
             align-items: center;
             justify-content: center;
             box-sizing: border-box;
+            flex-shrink: 0;
         }
 
         .btn-submit:hover {
@@ -216,7 +225,7 @@
             font-size: 0.8rem;
             color: var(--text-muted);
             font-weight: 600;
-            min-height: 2.6em; /* 👈 2줄 기준 높이 고정 */
+            min-height: 2.6em;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -228,7 +237,7 @@
         .stat-value {
             font-size: 1.5rem;
             font-weight: 800;
-            margin-top: auto; /* 👈 숫자를 항상 카드 하단 기준 일직선 정렬 */
+            margin-top: auto;
             padding-top: 4px;
         }
 
@@ -244,6 +253,12 @@
             margin-bottom: 12px;
         }
 
+        /* 1014추가 내용: 최근 30일 스캔 추이 한 줄 고정 */
+        .chart-header .card-title {
+            white-space: nowrap !important;
+            font-size: 0.95rem;
+        }
+
         .toggle-wrapper, .theme-toggle-wrapper {
             display: flex;
             align-items: center;
@@ -253,6 +268,7 @@
             background: var(--toggle-bg);
             padding: 4px 10px;
             border-radius: 20px;
+            white-space: nowrap;
         }
 
         .switch {
@@ -328,7 +344,6 @@
             width: 100%;
         }
 
-        /* 회색 배경 트랙 */
         .progress-bg {
             flex: 1;
             height: 14px;
@@ -342,7 +357,6 @@
             background-color: #334155;
         }
 
-        /* 게이지 막대 기본 구조 */
         .progress-bar {
             height: 100% !important;
             border-radius: 7px;
@@ -382,9 +396,33 @@
             color: #fef08a;
         }
 
+        /* 1014추가 내용: PC 버전 기본에서는 모바일 카메라 영역 숨김 */
+        .mobile-only-camera {
+            display: none;
+        }
+
         @media (max-width: 900px) {
             .dashboard-grid {
                 flex-direction: column;
+                gap: 20px;
+            }
+            .left-col, .right-col, .card-section, .result-container, .header {
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 14px;
+            }
+
+            .header > div {
+                width: 100%;
+                display: flex;
+                flex-direction: row-reverse;
+                justify-content: space-between;
+                align-items: center;
             }
         }
     </style>
@@ -404,20 +442,32 @@
                         <span class="slider"></span>
                     </label>
                 </div>
-                <span class="badge-mode">💻 PC 접속 모드</span>
+                <!-- 1014추가 내용: 접속 기기 감지용 id="deviceModeBadge" -->
+                <span class="badge-mode" id="deviceModeBadge">💻 PC 접속 모드</span>
             </div>
         </div>
 
         <!-- 대시보드 2열 영역 시작 -->
         <div class="dashboard-grid">
 
-            <!-- 👈 [왼쪽 영역] QR 업로드 / URL 입력 / 분석 결과 -->
+            <!-- 👈 [왼쪽 영역] QR 업로드 / 카메라 스캔 / URL 입력 / 분석 결과 -->
             <div class="left-col">
                 
-                <!-- QR 코드 이미지 업로드 검사 카드 -->
+                <!-- 1014추가 내용: PC에서는 📁 QR 이미지 파일 업로드 표시, 모바일에서는 제목 및 파일 선택 영역 완전 숨김 -->
                 <div class="card-section">
-                    <div class="card-title">📁 QR 이미지 파일 업로드</div>
-                    <div class="input-row">
+                    <!-- 1014추가 내용: PC용 제목 태그 -->
+                    <div class="card-title" id="qrCardTitle">📁 QR 이미지 파일 업로드</div>
+
+                    <!-- 1014추가 내용: 모바일 전용 카메라 스캔 영역 -->
+                    <div id="cameraAreaWrapper" class="mobile-only-camera">
+                        <button class="btn-submit" id="startCameraBtn" onclick="toggleCameraScanner()" style="width: 100%; background: #16a34a; font-size: 0.95rem;">
+                            📷 실시간 카메라 QR 스캔
+                        </button>
+                        <div id="cameraReader" style="width: 100%; display: none; border-radius: 10px; overflow: hidden; margin-top: 10px; border: 2px solid #2563eb;"></div>
+                    </div>
+
+                    <!-- 1014추가 내용: 모바일에서 숨김 처리되는 파일 선택 행 id="fileUploadRow" -->
+                    <div class="input-row" id="fileUploadRow">
                         <input type="file" id="qrFileInput" accept="image/*">
                         <button class="btn-submit" onclick="uploadQrCode()">분석 요청</button>
                     </div>
@@ -434,7 +484,8 @@
 
                 <!-- ⭕ 검사 결과 출력 영역 -->
                 <div class="result-container" id="resultContainer" style="display: block;">
-                    <h3 class="result-title">분석 결과</h3>
+                    <!-- 1014추가 내용: 분석 결과 제목 앞에 이모지 📋 추가하여 다른 항목들과 줄맞춤 -->
+                    <h3 class="result-title">📋 분석 결과</h3>
                     
                     <div class="result-box">
                         <div class="result-item">
@@ -507,14 +558,17 @@
 
                 <div class="card-section">
                     <div class="chart-header">
+                        <!-- 1014추가 내용: 최근 30일 스캔 추이 한 줄 고정 -->
                         <div class="card-title" style="margin:0;">📈 최근 30일 스캔 추이</div>
+                        
+                        <!-- 1014추가 내용: 토글 라벨 '정상<br>URL' / '악성<br>URL' 엔터 처리 -->
                         <div class="toggle-wrapper">
-                            <span id="labelSafe" style="color: #16a34a;">정상 URL</span>
+                            <span id="labelSafe" style="color: #16a34a; text-align: center; line-height: 1.1;">정상<br>URL</span>
                             <label class="switch">
                                 <input type="checkbox" id="chartToggle">
                                 <span class="slider"></span>
                             </label>
-                            <span id="labelMalicious" style="color: #94a3b8;">악성 URL</span>
+                            <span id="labelMalicious" style="color: #94a3b8; text-align: center; line-height: 1.1;">악성<br>URL</span>
                         </div>
                     </div>
                     <div style="height: 280px; position: relative;">
@@ -532,12 +586,81 @@
     <script>
         let chartInstance = null;
         let monthlyDataCache = [];
+        let html5QrCode = null;
+        let isCameraRunning = false;
 
         document.addEventListener("DOMContentLoaded", () => {
             initTheme();
             loadStats();
             loadMonthlyChart();
+            checkDeviceMode();
         });
+
+        window.addEventListener('resize', checkDeviceMode);
+
+        // 1014추가 내용: 모바일에서 파일 업로드 영역(X표 부분) 완전 숨김 처리
+        function checkDeviceMode() {
+            const badge = document.getElementById('deviceModeBadge');
+            const cameraWrapper = document.getElementById('cameraAreaWrapper');
+            const fileUploadRow = document.getElementById('fileUploadRow');
+            const qrCardTitle = document.getElementById('qrCardTitle');
+
+            if (!badge) return;
+
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 900;
+
+            if (isMobile) {
+                badge.innerText = '📱 모바일 접속 모드';
+                if (cameraWrapper) cameraWrapper.style.display = 'block'; // 모바일: 카메라 버튼 표시
+                if (fileUploadRow) fileUploadRow.style.display = 'none';  // 1014추가 내용: 모바일에서 파일선택 영역 완전 숨김!
+                if (qrCardTitle) qrCardTitle.style.display = 'none';      // 모바일: 텍스트 제목 숨김
+            } else {
+                badge.innerText = '💻 PC 접속 모드';
+                if (cameraWrapper) cameraWrapper.style.display = 'none'; // PC: 카메라 버튼 숨김
+                if (fileUploadRow) fileUploadRow.style.display = 'flex';  // PC: 파일 선택 영역 노출
+                if (qrCardTitle) {
+                    qrCardTitle.style.display = 'block';
+                    qrCardTitle.innerText = '📁 QR 이미지 파일 업로드';
+                }
+            }
+        }
+
+        // 1014추가 내용: 실시간 모바일 카메라 QR 스캔 토글 함수
+        async function toggleCameraScanner() {
+            const readerDiv = document.getElementById('cameraReader');
+            const btn = document.getElementById('startCameraBtn');
+
+            if (isCameraRunning) {
+                if (html5QrCode) {
+                    await html5QrCode.stop();
+                    html5QrCode.clear();
+                }
+                readerDiv.style.display = 'none';
+                btn.innerText = '📷 실시간 카메라 QR 스캔';
+                btn.style.background = '#16a34a';
+                isCameraRunning = false;
+            } else {
+                readerDiv.style.display = 'block';
+                btn.innerText = '🛑 카메라 스캔 끄기';
+                btn.style.background = '#dc2626';
+                isCameraRunning = true;
+
+                html5QrCode = new Html5Qrcode("cameraReader");
+                html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    (decodedText, decodedResult) => {
+                        toggleCameraScanner();
+                        // 1014추가 내용: 스캔한 URL을 직접 입력창 건드리지 않고 즉시 백엔드로 전송하여 분석 실행
+                        checkUrl(decodedText);
+                    },
+                    (errorMessage) => {}
+                ).catch(err => {
+                    alert("카메라 권한을 얻을 수 없습니다. 브라우저 카메라 허용 설정을 확인해 주세요.");
+                    toggleCameraScanner();
+                });
+            }
+        }
 
         function initTheme() {
             const themeToggle = document.getElementById('themeToggle');
@@ -642,28 +765,99 @@
             renderChart(isChecked);
         });
 
-        async function uploadQrCode() {
-            const fileInput = document.getElementById('qrFileInput');
-            if (!fileInput.files || fileInput.files.length === 0) {
-                alert('검사할 QR 이미지 파일을 선택해 주세요!');
-                return;
-            }
-            try {
-                const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
-                const response = await fetch('/api/v1/scan/qr', { method: 'POST', body: formData });
-                if (!response.ok) throw new Error();
-                const data = await response.json();
-                renderResult(data);
-                loadStats();
-                loadMonthlyChart();
-            } catch (error) {
-                alert('QR 코드 검사 중 오류가 발생했거나 서버 연결 상태를 확인해주세요.');
-            }
-        }
+		// 이미지를 서버 전송 전 800px 이하로 자동 리사이징하는 함수
+		function resizeImage(file, maxWidth = 800, maxHeight = 800) {
+		    return new Promise((resolve) => {
+		        const reader = new FileReader();
+		        reader.readAsDataURL(file);
+		        reader.onload = (event) => {
+		            const img = new Image();
+		            img.src = event.target.result;
+		            img.onload = () => {
+		                let width = img.width;
+		                let height = img.height;
 
-        async function checkUrl() {
-            const urlValue = document.getElementById('urlInput').value.trim();
+		                if (width > maxWidth || height > maxHeight) {
+		                    if (width > height) {
+		                        height = Math.round((height * maxWidth) / width);
+		                        width = maxWidth;
+		                    } else {
+		                        width = Math.round((width * maxHeight) / height);
+		                        height = maxHeight;
+		                    }
+		                }
+
+		                const canvas = document.createElement('canvas');
+		                canvas.width = width;
+		                canvas.height = height;
+
+		                const ctx = canvas.getContext('2d');
+		                ctx.drawImage(img, 0, 0, width, height);
+
+		                canvas.toBlob((blob) => {
+		                    resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+		                }, 'image/jpeg', 0.8); // 80% 화질 압축
+		            };
+		        };
+		    });
+		}
+		
+		async function uploadQrCode() {
+		    const fileInput = document.getElementById('qrFileInput');
+		    if (!fileInput.files || fileInput.files.length === 0) {
+		        alert('검사할 QR 이미지 파일을 선택해 주세요!');
+		        return;
+		    }
+
+		    const file = fileInput.files[0];
+
+		    // ★ [추가] 프론트엔드 파일 타입 1차 검증
+		    if (file.type && !file.type.startsWith('image/')) {
+		        renderResult({
+		            isSuspicious: false,
+		            riskScore: 0,
+		            message: "지원하지 않는 파일 형식입니다.",
+		            reason: "JPG, PNG, WEBP 등 이미지 형식의 파일만 업로드해 주세요.",
+		            decodedUrl: "-",
+		            expandedUrl: "-"
+		        });
+		        return;
+		    }
+
+		    try {
+		        const formData = new FormData();
+		        formData.append('file', file);
+		        
+		        const response = await fetch('/api/v1/scan/qr', { method: 'POST', body: formData });
+		        
+		        if (!response.ok) {
+		            renderResult({
+		                isSuspicious: false,
+		                riskScore: 0,
+		                message: "지원하지 않는 파일 형식입니다.",
+		                reason: "JPG, PNG 등 올바른 이미지 파일을 업로드해 주세요.",
+		                decodedUrl: "-",
+		                expandedUrl: "-"
+		            });
+		            return;
+		        }
+
+		        const data = await response.json();
+		        renderResult(data);
+		        loadStats();
+		        loadMonthlyChart();
+
+		        const resultEl = document.getElementById('resultContainer');
+		        if (resultEl) resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+		    } catch (error) {
+		        alert('QR 코드 검사 중 오류가 발생했거나 서버 연결 상태를 확인해주세요.');
+		    }
+		}
+
+        // 1014추가 내용: directUrl 인자를 지원하여 스캔된 URL을 직접 분석하고 결과 영역으로 부드럽게 스크롤
+        async function checkUrl(directUrl = null) {
+            const urlValue = directUrl ? directUrl.trim() : document.getElementById('urlInput').value.trim();
             if (!urlValue) return alert('검사할 URL을 입력해 주세요!');
             
             try {
@@ -677,48 +871,60 @@
                 renderResult(data);
                 loadStats();
                 loadMonthlyChart();
+
+                // 1014추가 내용: 스캔 완료 후 '📋 분석 결과' 위치로 화면 부드럽게 스크롤
+                const resultEl = document.getElementById('resultContainer');
+                if (resultEl) {
+                    resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
             } catch (error) {
                 alert('URL 검사 중 오류가 발생했거나 서버 연결 상태를 확인해주세요.');
             }
         }
 
-        function renderResult(data) {
-            if (!data) return;
+		function renderResult(data) {
+		    if (!data) return;
 
-            const bar = document.getElementById('resScoreBar');
-            const scoreText = document.getElementById('resScoreText');
-            const resStatusEl = document.getElementById('resStatus');
+		    const bar = document.getElementById('resScoreBar');
+		    const scoreText = document.getElementById('resScoreText');
+		    const resStatusEl = document.getElementById('resStatus');
 
-            const score = Number(data.riskScore) || 0;
+		    const score = Number(data.riskScore) || 0;
 
-            let barColor = '#16a34a';
-            if (score >= 70) {
-                barColor = '#dc2626';
-            } else if (score >= 40) {
-                barColor = '#f59e0b';
-            }
+		    let barColor = '#16a34a';
+		    if (score >= 70) {
+		        barColor = '#dc2626';
+		    } else if (score >= 40) {
+		        barColor = '#f59e0b';
+		    }
 
-            scoreText.innerText = score + '점';
+		    scoreText.innerText = score + '점';
 
-            if (data.isSuspicious) {
-                resStatusEl.innerHTML = '<span class="status-danger">🚨 위험 (의심스러운 URL)</span>';
-            } else {
-                resStatusEl.innerHTML = '<span class="status-safe">✅ 안전 (정상 URL)</span>';
-            }
+		    // 백엔드/프론트엔드에서 넘어온 메시지 및 판정 사유 통합 검사
+		    const fullText = (data.message || '') + ' ' + (data.reason || '');
+		    
+		    // ★ '지원하지' 키워드 조건 추가
+		    if (fullText.includes('유효하지 않') || fullText.includes('올바른') || fullText.includes('오류') || fullText.includes('인식할 수 없') || fullText.includes('지원하지')) {
+		        resStatusEl.innerHTML = '<span style="color: #d97706; font-weight: 800;">⚠️ 유효하지 않은 URL (검사 불가)</span>';
+		    } else if (data.isSuspicious) {
+		        resStatusEl.innerHTML = '<span class="status-danger">🚨 위험 (의심스러운 URL)</span>';
+		    } else {
+		        resStatusEl.innerHTML = '<span class="status-safe">✅ 안전 (정상 URL)</span>';
+		    }
 
-            document.getElementById('resMessage').innerText = data.message || '-';
-            document.getElementById('resReason').innerText = data.reason || '특이사항이 발견되지 않은 안전한 URL입니다.';
-            document.getElementById('resOriginalUrl').innerText = data.decodedUrl || '-';
-            document.getElementById('resExpandedUrl').innerText = data.expandedUrl || '-';
+		    document.getElementById('resMessage').innerText = data.message || '-';
+		    document.getElementById('resReason').innerText = data.reason || '특이사항이 발견되지 않은 안전한 URL입니다.';
+		    document.getElementById('resOriginalUrl').innerText = data.decodedUrl || '-';
+		    document.getElementById('resExpandedUrl').innerText = data.expandedUrl || '-';
 
-            if (bar) {
-                bar.style.cssText = "width: 0%; background: " + barColor + " !important; height: 100%; border-radius: 7px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);";
+		    if (bar) {
+		        bar.style.cssText = "width: 0%; background: " + barColor + " !important; height: 100%; border-radius: 7px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);";
 
-                setTimeout(() => {
-                    bar.style.cssText = "width: " + score + "%; background: " + barColor + " !important; height: 100%; border-radius: 7px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);";
-                }, 50);
-            }
-        }
+		        setTimeout(() => {
+		            bar.style.cssText = "width: " + score + "%; background: " + barColor + " !important; height: 100%; border-radius: 7px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);";
+		        }, 50);
+		    }
+		}
     </script>
 </body>
 </html>

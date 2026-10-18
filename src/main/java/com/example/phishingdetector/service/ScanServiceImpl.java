@@ -11,12 +11,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-/**
- * [ScanServiceImpl]
- * - URL 및 QR 피싱/큐싱 탐지 서비스 구현체
- * - QrDecoderService 및 UrlTrackerService 연동을 통한 실데이터 검수
- * - OWASP / APWG 가이드라인 기반 6대 휴리스틱 탐지 엔진 적용 및 ERD 기반 DB 이력 저장
- */
 @Service
 public class ScanServiceImpl implements ScanService {
 
@@ -32,34 +26,39 @@ public class ScanServiceImpl implements ScanService {
         this.urlTrackerService = urlTrackerService;
     }
 
-    /**
-     * [기능 1] 실제 QR 코드 이미지 디코딩 및 분석 ('QR' 타입)
-     */
     @Override
     public ScanResponseDto scanQrCode(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             return new ScanResponseDto(false, 0, "QR 이미지가 첨부되지 않았습니다.", "파일을 선택해 주세요.", "-", "-");
         }
 
+        // ★ [추가] 이미지 파일(JPG, PNG 등)이 아닌 경우 별도 안내 메시지 반환
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            return new ScanResponseDto(
+                false, 
+                0, 
+                "지원하지 않는 파일 형식입니다.", 
+                "JPG, PNG, WEBP 등 이미지 형식의 파일만 업로드해 주세요.", 
+                "-", 
+                "-"
+            );
+        }
+
         try {
-            // 1. QrDecoderService를 사용하여 QR 이미지에서 URL 추출
             String decodedUrl = qrDecoderService.decodeQrCode(file);
             
             if (decodedUrl == null || decodedUrl.trim().isEmpty()) {
                 return new ScanResponseDto(false, 0, "QR 코드를 인식할 수 없습니다.", "이미지에서 올바른 URL을 추출하지 못했습니다.", "-", "-");
             }
 
-            // 2. 추출된 URL을 바탕으로 스캔 진행 ('QR' 스캔 방식)
             return processScanWithTracking(decodedUrl, "QR");
 
-        } catch (Exception e) {
-            return new ScanResponseDto(false, 0, "QR 분석 중 오류가 발생했습니다.", e.getMessage(), "-", "-");
+        } catch (Throwable e) {
+            return new ScanResponseDto(false, 0, "QR 코드를 인식할 수 없습니다.", "이미지에서 올바른 URL을 추출하지 못했습니다.", "-", "-");
         }
     }
 
-    /**
-     * [기능 2] URL 직접 입력 분석 ('URL' 타입)
-     */
     @Override
     public ScanResponseDto scanUrl(String url) {
         try {
@@ -78,22 +77,29 @@ public class ScanServiceImpl implements ScanService {
         }
     }
 
-    /**
-     * [기능 3] 단축 URL 추적 및 OWASP/APWG 기반 휴리스틱 탐지
-     */
     private ScanResponseDto processScanWithTracking(String originalUrl, String sourceType) {
         if (originalUrl == null || originalUrl.trim().isEmpty()) {
             return new ScanResponseDto(false, 0, "유효하지 않은 URL입니다.", "URL이 입력되지 않았습니다.", originalUrl, originalUrl);
         }
 
         String targetUrl = originalUrl.trim();
-        
-        // http:// 또는 https:// 스키마 보정
+
+        // ★ [보완 1] URL 형식이 아닌 비정상 특수문자 및 문자열 1차 검증
+        if (!isValidUrlFormat(targetUrl)) {
+            return new ScanResponseDto(
+                false, 
+                0, 
+                "유효하지 않은 URL 형식입니다.", 
+                "올바른 주소를 입력해 주세요.", 
+                originalUrl, 
+                originalUrl
+            );
+        }
+
         if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
             targetUrl = "http://" + targetUrl;
         }
 
-        // 1. UrlTrackerService로 단축 URL 추적하여 최종 destination URL 도출
         String expandedUrl = targetUrl;
         try {
             expandedUrl = urlTrackerService.expandUrl(targetUrl);
@@ -101,8 +107,38 @@ public class ScanServiceImpl implements ScanService {
             // 추적 실패 시 원본 URL 유지
         }
 
-        // 2. 최종 이동 URL 기반 탐지 엔진 실행 (sourceType 포함)
         return processScanEngine(originalUrl, expandedUrl, sourceType);
+    }
+
+    /**
+     * ★ [보완 2] URL 및 도메인 정규식 유효성 검증 메서드
+     */
+    private boolean isValidUrlFormat(String url) {
+        String clean = url.trim().toLowerCase();
+
+        // 1) 큰따옴표, 백틱, 괄호 등 비정상 특수문자 단독/범벅 입력 차단
+        if (clean.matches(".*[\"'`<>{}|\\[\\]^].*")) {
+            return false;
+        }
+
+        // 2) http:// 또는 https:// 제거 후 순수 도메인 파트 추출
+        String domainPart = clean.replaceFirst("^https?://", "").split("/")[0].split("\\?")[0];
+
+        // 3) 도메인 부분에 최소한 점(.)이 존재하거나 localhost 인지 확인
+        if (!domainPart.contains(".") && !domainPart.equals("localhost")) {
+            return false;
+        }
+
+        // 4) @ 기호가 포함된 경우: google.com@evil.com 형태의 유효한 우회 주소 구조인지 검증
+        if (domainPart.contains("@")) {
+            String[] parts = domainPart.split("@");
+            // @ 앞뒤로 문자열이 존재하고, 실제 접속 대상인 @ 뒷부분이 올바른 도메인 구조(점 포함)여야 함
+            if (parts.length != 2 || parts[0].isEmpty() || parts[1].isEmpty() || !parts[1].contains(".")) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     @Override
@@ -110,9 +146,6 @@ public class ScanServiceImpl implements ScanService {
         return processScanWithTracking(url, "URL");
     }
 
-    /**
-     * [기능 4] 6대 휴리스틱 스캔 엔진 및 ERD 규격 DB 자동 저장
-     */
     private ScanResponseDto processScanEngine(String originalUrl, String expandedUrl, String sourceType) {
         List<String> reasons = new ArrayList<>();
         int calculatedRiskScore = 0;
@@ -143,8 +176,8 @@ public class ScanServiceImpl implements ScanService {
             calculatedRiskScore += 20;
         }
 
-        // [규칙 5] 단축 URL 서비스 사용 여부
-        if (!originalUrl.equals(expandedUrl) || isShortenedUrl(originalUrl.toLowerCase())) {
+        // [규칙 5] 실제 단축 URL 서비스 사용 여부 (동일 주소 자동 보정 차점 방지)
+        if (isShortenedUrl(originalUrl.toLowerCase())) {
             reasons.add("단축 URL을 사용하여 최종 목적지 주소를 은닉했습니다.");
             calculatedRiskScore += 25;
         }
@@ -155,6 +188,12 @@ public class ScanServiceImpl implements ScanService {
             calculatedRiskScore += 50;
         }
 
+        // [규칙 7] @ 기호를 악용한 사용자 인증/도메인 교란 기법
+        if (hasUserInfoAtSymbol(lowerUrl)) {
+            reasons.add("도메인 앞에 '@' 기호를 삽입하여 정상 사이트 접속으로 착시를 유도하는 주소 교란 패턴입니다.");
+            calculatedRiskScore += 45;
+        }
+
         int finalScore = Math.min(calculatedRiskScore, 100);
         boolean isSuspicious = finalScore >= 40;
         String message = isSuspicious 
@@ -162,17 +201,15 @@ public class ScanServiceImpl implements ScanService {
                 : "특이사항이 발견되지 않은 안전한 사이트입니다.";
 
         String formattedReason = formatReasons(reasons);
-
-        // ERD 스펙에 맞춘 DB 저장 (ScanHistory)
         String riskLevel = finalScore >= 70 ? "DANGEROUS" : (finalScore >= 40 ? "WARNING" : "SAFE");
         
         ScanHistory history = new ScanHistory();
-        history.setSourceType(sourceType);       // 'URL' 또는 'QR'
-        history.setOriginalUrl(originalUrl);     // 검사 원본 URL
-        history.setExpandedUrl(expandedUrl);     // 최종 이동 URL
-        history.setRiskScore(finalScore);        // 위험 점수
-        history.setRiskLevel(riskLevel);         // SAFE, WARNING, DANGEROUS
-        history.setScanReason(formattedReason);  // 세부 판정 사유
+        history.setSourceType(sourceType);
+        history.setOriginalUrl(originalUrl);
+        history.setExpandedUrl(expandedUrl);
+        history.setRiskScore(finalScore);
+        history.setRiskLevel(riskLevel);
+        history.setScanReason(formattedReason);
 
         scanHistoryRepository.save(history);
 
@@ -183,10 +220,6 @@ public class ScanServiceImpl implements ScanService {
     public List<ScanHistory> getScanHistory() {
         return scanHistoryRepository.findAllByOrderByScanIdDesc();
     }
-
-    // =========================================================================
-    // [휴리스틱 검증 세부 메서드]
-    // =========================================================================
 
     private String formatReasons(List<String> reasons) {
         if (reasons == null || reasons.isEmpty()) {
@@ -238,5 +271,10 @@ public class ScanServiceImpl implements ScanService {
 
     private boolean isGoogleBlacklisted(String url) {
         return url.contains("malicious") || url.contains("phishing") || url.contains("login-check") || url.contains("security-check");
+    }
+
+    private boolean hasUserInfoAtSymbol(String url) {
+        String cleanUrl = url.replaceFirst("^https?://", "");
+        return cleanUrl.contains("@");
     }
 }
