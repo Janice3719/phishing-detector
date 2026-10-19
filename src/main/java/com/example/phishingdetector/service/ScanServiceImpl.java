@@ -84,6 +84,18 @@ public class ScanServiceImpl implements ScanService {
 
         String targetUrl = originalUrl.trim();
 
+        // 1018 수정 내용 : DB 오버플로우 및 시스템 에러 방지를 위한 2,000자 초과 초장문 URL 검증 로직 추가
+        if (targetUrl.length() > 2000) {
+            return new ScanResponseDto(
+                false, 
+                0, 
+                "입력 가능한 URL 길이를 초과했습니다.", 
+                "URL 길이는 최대 2,000자까지 검사할 수 있습니다.", 
+                targetUrl.substring(0, 30) + "...", 
+                "-"
+            );
+        }
+
         // ★ [보완 1] URL 형식이 아닌 비정상 특수문자 및 문자열 1차 검증
         if (!isValidUrlFormat(targetUrl)) {
             return new ScanResponseDto(

@@ -903,8 +903,8 @@
 		    // 백엔드/프론트엔드에서 넘어온 메시지 및 판정 사유 통합 검사
 		    const fullText = (data.message || '') + ' ' + (data.reason || '');
 		    
-		    // ★ '지원하지' 키워드 조건 추가
-		    if (fullText.includes('유효하지 않') || fullText.includes('올바른') || fullText.includes('오류') || fullText.includes('인식할 수 없') || fullText.includes('지원하지')) {
+		    // ★ '초과', '길이' 키워드 추가
+		    if (fullText.includes('유효하지 않') || fullText.includes('올바른') || fullText.includes('오류') || fullText.includes('인식할 수 없') || fullText.includes('지원하지') || fullText.includes('초과') || fullText.includes('길이')) {
 		        resStatusEl.innerHTML = '<span style="color: #d97706; font-weight: 800;">⚠️ 유효하지 않은 URL (검사 불가)</span>';
 		    } else if (data.isSuspicious) {
 		        resStatusEl.innerHTML = '<span class="status-danger">🚨 위험 (의심스러운 URL)</span>';
@@ -914,7 +914,7 @@
 
 		    document.getElementById('resMessage').innerText = data.message || '-';
 		    document.getElementById('resReason').innerText = data.reason || '특이사항이 발견되지 않은 안전한 URL입니다.';
-		    document.getElementById('resOriginalUrl').innerText = data.decodedUrl || '-';
+		    document.getElementById('resOriginalUrl').innerText = data.decodedUrl || data.originalUrl || '-';
 		    document.getElementById('resExpandedUrl').innerText = data.expandedUrl || '-';
 
 		    if (bar) {
