@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # 1. Redis 컨테이너 (통계 캐싱)
+  redis:
+    image: redis:alpine
+    container_name: qr-redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # 2. MySQL 컨테이너 (이력 저장)
+  mysql:
+    image: mysql:8.0
+    container_name: qr-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword # 본인의 root 비밀번호
+      MYSQL_DATABASE: qr_db            # 사용할 DB 이름
+      MYSQL_USER: qruser              # DB 사용자 계정
+      MYSQL_PASSWORD: userpassword     # DB 사용자 비밀번호
+    volumes:
+      - mysql_data:/var/lib/mysql     # 컨테이너가 꺼져도 DB 데이터 유지
+    restart: always
+
+  # 3. Spring Boot 백엔드 애플리케이션
+  web-app:
+    build: .
+    container_name: qr-security-app
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      # 도커 내부망에서는 localhost 대신 서비스명(mysql, redis)으로 접속합니다.
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/qr_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+      - SPRING_DATASOURCE_USERNAME=qruser
+      - SPRING_DATASOURCE_PASSWORD=userpassword
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+    restart: always
+
+# MySQL 데이터 보존용 볼륨 정의
+volumes:
+  mysql_data:
