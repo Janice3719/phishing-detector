@@ -14,7 +14,7 @@ services:
     image: mysql:8.0
     container_name: qr-mysql
     ports:
-      - "3306:3306"
+      - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword # 본인의 root 비밀번호
       MYSQL_DATABASE: qr_db            # 사용할 DB 이름

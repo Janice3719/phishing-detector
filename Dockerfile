@@ -1,12 +1,11 @@
-# 1. Java 17 런타임 환경 (본인 자바 버전에 맞게 수정)
-FROM openjdk:17-jdk-slim
+# 1. Java 17 런타임 환경 (Temurin JDK 17)
+FROM eclipse-temurin:21-jdk-alpine
 
 # 2. 작업 디렉토리 지정
 WORKDIR /app
 
-# 3. 빌드된 JAR 파일 복사 (Gradle 기준)
-ARG JAR_FILE=build/libs/*-SNAPSHOT.jar
-COPY ${JAR_FILE} app.jar
+# 3. build/libs 폴더 내부의 -SNAPSHOT.jar 파일 복사
+COPY build/libs/*-SNAPSHOT.jar app.jar
 
 # 4. 애플리케이션 포트 노출
 EXPOSE 8080
